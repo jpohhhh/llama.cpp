@@ -1089,7 +1089,7 @@ class peg_test_builder {
         tc_.is_partial = val;
         return *this;
     }
-
+    
     // Expect setters
     peg_test_builder & expect(const common_chat_msg & msg) {
         tc_.expect = msg;
@@ -1792,6 +1792,75 @@ static void test_template_output_peg_parsers(bool detailed_debug) {
             })
             .run();
     }
+    // Qwen3.5-0.8B: template + basic tool calling + malformed JSON regression
+    {
+        auto tst = peg_tester("models/templates/Qwen3.5-0.8B.jinja", /*detailed_debug=*/false);
+
+        tst.test("Hello, world!\nWhat's up?").expect(message_assist).run();
+
+        tst.test(
+               "<tool_call>\n"
+               "<function=special_function>\n"
+               "<parameter=arg1>\n"
+               "1\n"
+               "</parameter>\n"
+               "</function>\n"
+               "</tool_call>")
+            .tools({ special_function_tool })
+            .expect(message_assist_call)
+            .run();
+
+        tst.test(
+               "The user wants flashcards about California.\n"
+               "</think>\n"
+               "\n"
+               "<tool_call>\n"
+               "<function=special_function>\n"
+               "<parameter=arg1>\n"
+               "1\n"
+               "</parameter>\n"
+               "</function>\n"
+               "</tool_call>")
+            .tools({ special_function_tool })
+            .enable_thinking(true)
+            .reasoning_format(COMMON_REASONING_FORMAT_AUTO)
+            .expect_reasoning("The user wants flashcards about California.\n")
+            .expect_tool_calls({
+                { "special_function", R"({"arg1": 1})", {} },
+            })
+            .run();
+    }
+
+    // Qwen3.5 TAG_WITH_TAGGED: partial parse extraction on malformed/truncated output
+    {
+        auto tst = peg_tester("models/templates/Qwen3.5-0.8B.jinja", /*detailed_debug=*/false);
+
+        static common_chat_tool flashcards_tool{
+            "flashcards", "Flashcards for studying",
+            R"({"type":"object","properties":{"flashcards":{"type":"array","items":{"type":"object","properties":{"query":{"type":"string"},"recall":{"type":"string"}},"required":["recall","query"]}}},"required":["flashcards"]})",
+        };
+
+        // Well-formed JSON: no regression
+        tst.test(
+               "Making cards.\n"
+               "</think>\n\n"
+               "<tool_call>\n"
+               "<function=flashcards>\n"
+               "<parameter=flashcards>\n"
+               "[{\"query\": \"CA\", \"recall\": \"LA\"}]\n"
+               "</parameter>\n"
+               "</function>\n"
+               "</tool_call>")
+            .tools({ flashcards_tool })
+            .enable_thinking(true)
+            .reasoning_format(COMMON_REASONING_FORMAT_AUTO)
+            .expect_reasoning("Making cards.\n")
+            .expect_tool_calls({
+                { "flashcards", R"({"flashcards": [{"query": "CA", "recall": "LA"}]})", {} },
+            })
+            .run();
+    }
+
     {
         auto tst = peg_tester("models/templates/deepseek-ai-DeepSeek-V3.1.jinja", detailed_debug);
         tst.test(
@@ -1915,6 +1984,7 @@ static void test_template_output_peg_parsers(bool detailed_debug) {
                 { "special_function_with_opt", R"({"arg1": 1, "arg2": 2})", {} },
             })
             .run();
+
     }
 
     // Kimi-K2-Thinking tests - custom parser

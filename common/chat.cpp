@@ -1723,24 +1723,13 @@ common_chat_msg common_chat_peg_parse(const common_peg_arena &          src_pars
     common_peg_parse_context ctx(input, flags);
     auto result = parser.parse(ctx);
 
-    if (result.fail()) {
-        // During partial parsing, return partial results if any AST nodes were captured
-        // This allows streaming to work correctly for formats like FUNC_MARKDOWN_CODE_BLOCK
-        if (is_partial && result.end > 0) {
-            // Try to extract any partial results from what was successfully parsed
-            common_chat_msg msg;
-            msg.role = "assistant";
-            auto mapper = common_chat_peg_mapper(msg);
-            mapper.from_ast(ctx.ast, result);
-
-            if (ctx.is_debug()) {
-                fprintf(stderr, "\nAST for partial parse (fail):\n%s\n", ctx.ast.dump().c_str());
-                fflush(stderr);
-            }
-            return msg;
-        }
+    if (result.fail() && result.end == 0) {
         throw std::runtime_error(std::string("Failed to parse input at pos ") + std::to_string(result.end) + ": " +
                                  input.substr(result.end));
+    }
+    if (result.fail()) {
+        LOG_WRN("%s: parser failed at pos %zu, returning partial result. Unparsed: %s\n",
+                __func__, result.end, input.substr(result.end).c_str());
     }
 
     common_chat_msg msg;
