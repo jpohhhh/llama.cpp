@@ -624,8 +624,12 @@ void analyze_tools::analyze_tool_call_format_json_native(const std::string & cle
                                                          const std::string & fun_name_needle,
                                                          const std::string & arg_name_needle) {
     // we might not have the typical OpenAI tool calling structure
-    int  json_start     = clean_haystack.find_first_of('{');
-    int  json_end       = clean_haystack.find_last_of('}');
+    size_t json_start = clean_haystack.find_first_of('{');
+    size_t json_end   = clean_haystack.find_last_of('}');
+    if (json_start == std::string::npos || json_end == std::string::npos || json_end < json_start) {
+        LOG_WRN("%s: no JSON object found in tool call haystack, skipping\n", __func__);
+        return;
+    }
     std::string cut     = clean_haystack.substr(json_start, json_end - json_start + 1);
     json call_struct    = json::parse(cut);
     auto register_field = [&](const std::string & prefix, const nlohmann::detail::iteration_proxy_value<json::iterator> & subel) {
@@ -667,10 +671,14 @@ void analyze_tools::analyze_tool_call_format_json_native(const std::string & cle
     auto ar_parse_res = array_parser.parse_anywhere_and_extract(clean_haystack);
     if (ar_parse_res.result.success()) {
         format.tools_array_wrapped = true;
-        json_start -= ar_parse_res.tags["pre"].length();
+        size_t pre_len = ar_parse_res.tags["pre"].length();
+        json_start = (json_start >= pre_len) ? json_start - pre_len : 0;
         json_end += ar_parse_res.tags["post"].length();
     }
     json_end++; // we want to move past the closing char for end marker extraction
+    if (json_end > clean_haystack.size()) {
+        json_end = clean_haystack.size();
+    }
 
     std::vector<std::pair<size_t, std::string>> located_params;
     if (!format.name_field.empty()) {
