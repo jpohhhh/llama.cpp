@@ -2009,6 +2009,16 @@ static void test_template_output_peg_parsers(bool detailed_debug) {
         GGML_ASSERT(got_runtime_error  && "throw path should produce std::runtime_error with parse position");
     }
 
+    // Regression: Granite 3.3 wraps content in <response>...</response>.
+    // The json_schema parser ignored this wrapper, crashing on valid output.
+    {
+        auto tst = peg_tester("models/templates/ibm-granite-granite-3.3-2B-Instruct.jinja", false);
+        tst.test("<response>{\"answer\": 42}</response>")
+            .json_schema("{\"type\":\"object\",\"properties\":{\"answer\":{\"type\":\"integer\"}},\"required\":[\"answer\"]}")
+            .expect(simple_assist_msg("{\"answer\": 42}"))
+            .run();
+    }
+
     // Kimi-K2-Thinking tests - custom parser
     // Unique feature: tool call ID embeds function name as functions.<name>:<counter>
     {

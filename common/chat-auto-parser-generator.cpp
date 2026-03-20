@@ -103,10 +103,16 @@ common_peg_arena autoparser::build_parser(const generation_params & inputs) cons
 
         if (has_response_format) {
             auto response_format = p.rule("response-format", p.content(p.schema(p.json(), "response-format-schema", inputs.json_schema)));
-            parser = ctx.reasoning_parser + p.space() + p.choice({
-                p.literal("```json") + p.space() + response_format + p.space() + p.literal("```"),
-                response_format
-            }) + p.end();
+            std::vector<common_peg_parser> alternatives;
+            // Some templates wrap content in markers (e.g. Granite 3.3 uses
+            // <response>...</response>). Accept the wrapped form too.
+            if (ctx.content && !ctx.content->start.empty() && !ctx.content->end.empty()) {
+                alternatives.push_back(
+                    p.literal(ctx.content->start) + p.space() + response_format + p.space() + p.literal(ctx.content->end));
+            }
+            alternatives.push_back(p.literal("```json") + p.space() + response_format + p.space() + p.literal("```"));
+            alternatives.push_back(response_format);
+            parser = ctx.reasoning_parser + p.space() + p.choice(alternatives) + p.end();
         } else if (has_tools && inputs.tool_choice != COMMON_CHAT_TOOL_CHOICE_NONE && jinja_caps.supports_tool_calls) {
             parser = tools.build_parser(ctx);
         } else {
